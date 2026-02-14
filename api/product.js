@@ -25,7 +25,6 @@ export default async function handler(req, res) {
     source_values: productUrl
   };
 
-  // إنشاء التوقيع
   const sortedKeys = Object.keys(params).sort();
   let signString = appSecret;
 
