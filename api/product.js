@@ -1,6 +1,9 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
+  console.log("KEY:", process.env.AE_APP_KEY);
+console.log("SECRET:", process.env.AE_APP_SECRET);
+
   try {
     const { url } = req.query;
 
