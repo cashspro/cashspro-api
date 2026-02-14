@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 export default async function handler(req, res) {
 
   const productUrl = req.query.url;
@@ -6,26 +8,57 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing product URL" });
   }
 
-  try {
+  const appKey = process.env.ALI_APP_KEY;
+  const appSecret = process.env.ALI_APP_SECRET;
 
-    const response = await fetch("https://api-sg.aliexpress.com/sync", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": process.env.ALI_APP_KEY,
-        "X-API-SECRET": process.env.ALI_APP_SECRET
-      },
-      body: JSON.stringify({
-        productUrl: productUrl
-      })
-    });
+  const method = "aliexpress.affiliate.link.generate";
+  const timestamp = new Date().toISOString().replace("T", " ").substring(0, 19);
+
+  const params = {
+    app_key: appKey,
+    method: method,
+    timestamp: timestamp,
+    format: "json",
+    v: "2.0",
+    sign_method: "sha256",
+    promotion_link_type: 0,
+    source_values: productUrl
+  };
+
+  // إنشاء التوقيع
+  const sortedKeys = Object.keys(params).sort();
+  let signString = appSecret;
+
+  sortedKeys.forEach(key => {
+    signString += key + params[key];
+  });
+
+  signString += appSecret;
+
+  const sign = crypto
+    .createHash("sha256")
+    .update(signString)
+    .digest("hex")
+    .toUpperCase();
+
+  params.sign = sign;
+
+  const query = new URLSearchParams(params).toString();
+
+  try {
+    const response = await fetch(
+      "https://api-sg.aliexpress.com/sync?" + query
+    );
 
     const data = await response.json();
 
-    return res.status(200).json(data);
+    res.status(200).json(data);
 
   } catch (error) {
-    return res.status(500).json({ error: "API Error", details: error.message });
+    res.status(500).json({
+      error: "API request failed",
+      details: error.message
+    });
   }
 
 }
