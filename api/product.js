@@ -1,7 +1,6 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
-
   const productUrl = req.query.url;
 
   if (!productUrl) {
@@ -27,46 +26,16 @@ export default async function handler(req, res) {
 
   const sortedKeys = Object.keys(params).sort();
 
-let signString = "";
+  let signString = "";
 
-sortedKeys.forEach(key => {
-  signString += key + params[key];
-});
+  sortedKeys.forEach(key => {
+    signString += key + params[key];
+  });
 
-signString = appSecret + signString + appSecret;
-
-const sign = crypto
-  .createHmac("sha256", appSecret)
-  .update(signString)
-  .digest("hex")
-  .toUpperCase();
-
-  signString += appSecret;
+  signString = appSecret + signString + appSecret;
 
   const sign = crypto
     .createHash("sha256")
     .update(signString)
     .digest("hex")
     .toUpperCase();
-
-  params.sign = sign;
-
-  const query = new URLSearchParams(params).toString();
-
-  try {
-    const response = await fetch(
-      "https://api-sg.aliexpress.com/sync?" + query
-    );
-
-    const data = await response.json();
-
-    res.status(200).json(data);
-
-  } catch (error) {
-    res.status(500).json({
-      error: "API request failed",
-      details: error.message
-    });
-  }
-
-}
