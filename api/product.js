@@ -26,11 +26,20 @@ export default async function handler(req, res) {
   };
 
   const sortedKeys = Object.keys(params).sort();
-  let signString = appSecret;
 
-  sortedKeys.forEach(key => {
-    signString += key + params[key];
-  });
+let signString = "";
+
+sortedKeys.forEach(key => {
+  signString += key + params[key];
+});
+
+signString = appSecret + signString + appSecret;
+
+const sign = crypto
+  .createHmac("sha256", appSecret)
+  .update(signString)
+  .digest("hex")
+  .toUpperCase();
 
   signString += appSecret;
 
