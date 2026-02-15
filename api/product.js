@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 export default async function handler(req, res) {
   try {
-    let { url } = req.query;
+    const { url } = req.query;
 
     if (!url) {
       return res.status(400).json({
@@ -11,22 +11,21 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔥 حل الروابط المختصرة
-    url = await resolveRedirect(url);
+    const appKey = process.env.AE_APP_KEY;
+    const appSecret = process.env.AE_APP_SECRET;
 
-    const productId = extractProductId(url);
+    // 🔥 أولاً: نحصل على product_id عبر link.generate
+    const productId = await getProductIdFromLink(url, appKey, appSecret);
 
     if (!productId) {
       return res.status(400).json({
         success: false,
-        message: "Could not extract product ID"
+        message: "Could not resolve product ID"
       });
     }
 
-    const appKey = process.env.AE_APP_KEY;
-    const appSecret = process.env.AE_APP_SECRET;
-
-    const params = {
+    // 🔥 ثانياً: نطلب تفاصيل المنتج
+    const detailParams = {
       app_key: appKey,
       method: "aliexpress.affiliate.productdetail.get",
       timestamp: Date.now().toString(),
@@ -36,21 +35,21 @@ export default async function handler(req, res) {
       product_ids: productId
     };
 
-    const sign = generateSign(params, appSecret);
+    const detailSign = generateSign(detailParams, appSecret);
 
-    const queryString = new URLSearchParams({
-      ...params,
-      sign
+    const detailQuery = new URLSearchParams({
+      ...detailParams,
+      sign: detailSign
     }).toString();
 
-    const response = await fetch(
-      `https://api-sg.aliexpress.com/sync?${queryString}`
+    const detailResponse = await fetch(
+      `https://api-sg.aliexpress.com/sync?${detailQuery}`
     );
 
-    const data = await response.json();
+    const detailData = await detailResponse.json();
 
     const product =
-      data?.aliexpress_affiliate_productdetail_get_response?.resp_result
+      detailData?.aliexpress_affiliate_productdetail_get_response?.resp_result
         ?.result?.products?.product?.[0];
 
     if (!product) {
@@ -85,21 +84,38 @@ export default async function handler(req, res) {
   }
 }
 
-async function resolveRedirect(url) {
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      redirect: "follow"
-    });
+async function getProductIdFromLink(url, appKey, appSecret) {
+  const params = {
+    app_key: appKey,
+    method: "aliexpress.affiliate.link.generate",
+    timestamp: Date.now().toString(),
+    sign_method: "sha256",
+    format: "json",
+    v: "2.0",
+    promotion_link_type: 0,
+    source_values: url
+  };
 
-    return response.url;
-  } catch {
-    return url;
-  }
-}
+  const sign = generateSign(params, appSecret);
 
-function extractProductId(url) {
-  const match = url.match(/(\d{10,})/);
+  const query = new URLSearchParams({
+    ...params,
+    sign
+  }).toString();
+
+  const response = await fetch(
+    `https://api-sg.aliexpress.com/sync?${query}`
+  );
+
+  const data = await response.json();
+
+  const result =
+    data?.aliexpress_affiliate_link_generate_response?.resp_result
+      ?.result?.promotion_links?.promotion_link?.[0]?.promotion_link;
+
+  if (!result) return null;
+
+  const match = result.match(/(\d{10,})/);
   return match ? match[1] : null;
 }
 
