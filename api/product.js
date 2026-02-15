@@ -1,11 +1,9 @@
 import crypto from "crypto";
-import axios from "axios";
 
 export default async function handler(req, res) {
   try {
     const { url } = req.query;
 
-    // 1️⃣ التحقق من وجود الرابط
     if (!url) {
       return res.status(400).json({
         success: false,
@@ -13,7 +11,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2️⃣ منع روابط s.click
+    // منع روابط s.click
     if (url.includes("s.click.aliexpress.com")) {
       return res.status(400).json({
         success: false,
@@ -21,9 +19,8 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3️⃣ استخراج Product ID
+    // استخراج Product ID
     const match = url.match(/\/item\/(\d+)\.html/);
-
     if (!match) {
       return res.status(400).json({
         success: false,
@@ -33,7 +30,6 @@ export default async function handler(req, res) {
 
     const productId = match[1];
 
-    // 4️⃣ إعداد مفاتيح API من Environment Variables
     const appKey = process.env.ALIEXPRESS_APP_KEY;
     const appSecret = process.env.ALIEXPRESS_APP_SECRET;
 
@@ -44,13 +40,12 @@ export default async function handler(req, res) {
       });
     }
 
-    // 5️⃣ إنشاء التوقيع
     const timestamp = Date.now().toString();
 
     const params = {
       app_key: appKey,
       method: "aliexpress.affiliate.productdetail.get",
-      timestamp: timestamp,
+      timestamp,
       format: "json",
       v: "2.0",
       sign_method: "sha256",
@@ -76,14 +71,16 @@ export default async function handler(req, res) {
 
     params.sign = sign;
 
-    // 6️⃣ إرسال الطلب إلى AliExpress API
-    const response = await axios.get(
-      "https://api-sg.aliexpress.com/sync",
-      { params }
+    const queryString = new URLSearchParams(params).toString();
+
+    const apiResponse = await fetch(
+      `https://api-sg.aliexpress.com/sync?${queryString}`
     );
 
+    const responseData = await apiResponse.json();
+
     const data =
-      response.data?.aliexpress_affiliate_productdetail_get_response
+      responseData?.aliexpress_affiliate_productdetail_get_response
         ?.resp_result?.result?.products?.product?.[0];
 
     if (!data) {
@@ -93,7 +90,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // 7️⃣ إرجاع بيانات نظيفة
     return res.status(200).json({
       success: true,
       product: {
@@ -110,7 +106,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("SERVER ERROR:", error);
 
     return res.status(500).json({
       success: false,
