@@ -1,9 +1,11 @@
 import crypto from "crypto";
+import axios from "axios";
 
 export default async function handler(req, res) {
   try {
     const { url } = req.query;
 
+    // 1️⃣ التحقق من وجود الرابط
     if (!url) {
       return res.status(400).json({
         success: false,
@@ -11,127 +13,108 @@ export default async function handler(req, res) {
       });
     }
 
-    const appKey = process.env.AE_APP_KEY;
-    const appSecret = process.env.AE_APP_SECRET;
-
-    // 🔥 أولاً: نحصل على product_id عبر link.generate
-    const productId = await getProductIdFromLink(url, appKey, appSecret);
-
-    if (!productId) {
+    // 2️⃣ منع روابط s.click
+    if (url.includes("s.click.aliexpress.com")) {
       return res.status(400).json({
         success: false,
-        message: "Could not resolve product ID"
+        message: "Please provide original AliExpress product URL, not affiliate short link."
       });
     }
 
-    // 🔥 ثانياً: نطلب تفاصيل المنتج
-    const detailParams = {
+    // 3️⃣ استخراج Product ID
+    const match = url.match(/\/item\/(\d+)\.html/);
+
+    if (!match) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid AliExpress product URL format."
+      });
+    }
+
+    const productId = match[1];
+
+    // 4️⃣ إعداد مفاتيح API من Environment Variables
+    const appKey = process.env.ALIEXPRESS_APP_KEY;
+    const appSecret = process.env.ALIEXPRESS_APP_SECRET;
+
+    if (!appKey || !appSecret) {
+      return res.status(500).json({
+        success: false,
+        message: "API credentials not configured."
+      });
+    }
+
+    // 5️⃣ إنشاء التوقيع
+    const timestamp = Date.now().toString();
+
+    const params = {
       app_key: appKey,
       method: "aliexpress.affiliate.productdetail.get",
-      timestamp: Date.now().toString(),
-      sign_method: "sha256",
+      timestamp: timestamp,
       format: "json",
       v: "2.0",
-      product_ids: productId
+      sign_method: "sha256",
+      product_ids: productId,
+      target_currency: "USD",
+      target_language: "EN"
     };
 
-    const detailSign = generateSign(detailParams, appSecret);
+    const sortedKeys = Object.keys(params).sort();
+    let signString = appSecret;
 
-    const detailQuery = new URLSearchParams({
-      ...detailParams,
-      sign: detailSign
-    }).toString();
+    sortedKeys.forEach(key => {
+      signString += key + params[key];
+    });
 
-    const detailResponse = await fetch(
-      `https://api-sg.aliexpress.com/sync?${detailQuery}`
+    signString += appSecret;
+
+    const sign = crypto
+      .createHash("sha256")
+      .update(signString)
+      .digest("hex")
+      .toUpperCase();
+
+    params.sign = sign;
+
+    // 6️⃣ إرسال الطلب إلى AliExpress API
+    const response = await axios.get(
+      "https://api-sg.aliexpress.com/sync",
+      { params }
     );
 
-    const detailData = await detailResponse.json();
+    const data =
+      response.data?.aliexpress_affiliate_productdetail_get_response
+        ?.resp_result?.result?.products?.product?.[0];
 
-    const product =
-      detailData?.aliexpress_affiliate_productdetail_get_response?.resp_result
-        ?.result?.products?.product?.[0];
-
-    if (!product) {
+    if (!data) {
       return res.status(404).json({
         success: false,
         message: "Product not found"
       });
     }
 
+    // 7️⃣ إرجاع بيانات نظيفة
     return res.status(200).json({
       success: true,
-      data: {
-        id: product.product_id,
-        title: product.product_title,
-        price: Number(product.target_sale_price),
-        old_price: Number(product.target_original_price),
-        discount: product.discount,
-        currency: product.target_sale_price_currency,
-        image: product.product_main_image_url,
-        images: product.product_small_image_urls?.string || [],
-        affiliate_link: product.promotion_link,
-        store: product.shop_name,
-        commission_rate: product.commission_rate
+      product: {
+        id: data.product_id,
+        title: data.product_title,
+        image: data.product_main_image_url,
+        price: data.target_sale_price,
+        original_price: data.target_original_price,
+        discount: data.discount,
+        currency: "USD",
+        rating: data.evaluate_rate,
+        sales: data.lastest_volume
       }
     });
 
   } catch (error) {
+    console.error(error);
+
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Internal server error"
     });
   }
-}
-
-async function getProductIdFromLink(url, appKey, appSecret) {
-  const params = {
-    app_key: appKey,
-    method: "aliexpress.affiliate.link.generate",
-    timestamp: Date.now().toString(),
-    sign_method: "sha256",
-    format: "json",
-    v: "2.0",
-    promotion_link_type: 0,
-    source_values: url
-  };
-
-  const sign = generateSign(params, appSecret);
-
-  const query = new URLSearchParams({
-    ...params,
-    sign
-  }).toString();
-
-  const response = await fetch(
-    `https://api-sg.aliexpress.com/sync?${query}`
-  );
-
-  const data = await response.json();
-
-  const result =
-    data?.aliexpress_affiliate_link_generate_response?.resp_result
-      ?.result?.promotion_links?.promotion_link?.[0]?.promotion_link;
-
-  if (!result) return null;
-
-  const match = result.match(/(\d{10,})/);
-  return match ? match[1] : null;
-}
-
-function generateSign(params, secret) {
-  const sortedKeys = Object.keys(params).sort();
-  let baseString = secret;
-
-  for (const key of sortedKeys) {
-    baseString += key + params[key];
-  }
-
-  baseString += secret;
-
-  return crypto
-    .createHmac("sha256", secret)
-    .update(baseString)
-    .digest("hex")
-    .toUpperCase();
 }
