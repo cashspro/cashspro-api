@@ -2,7 +2,7 @@ import crypto from "crypto";
 
 export default async function handler(req, res) {
   try {
-    const { url } = req.query;
+    let { url } = req.query;
 
     if (!url) {
       return res.status(400).json({
@@ -11,30 +11,29 @@ export default async function handler(req, res) {
       });
     }
 
-    const appKey = process.env.AE_APP_KEY;
-    const appSecret = process.env.AE_APP_SECRET;
+    // 🔥 حل الروابط المختصرة
+    url = await resolveRedirect(url);
 
-    if (!appKey || !appSecret) {
-      return res.status(500).json({
+    const productId = extractProductId(url);
+
+    if (!productId) {
+      return res.status(400).json({
         success: false,
-        message: "AliExpress credentials not configured"
+        message: "Could not extract product ID"
       });
     }
 
-    const method = "aliexpress.affiliate.productdetail.get";
-    const timestamp = Date.now().toString();
+    const appKey = process.env.AE_APP_KEY;
+    const appSecret = process.env.AE_APP_SECRET;
 
     const params = {
       app_key: appKey,
-      method,
-      timestamp,
+      method: "aliexpress.affiliate.productdetail.get",
+      timestamp: Date.now().toString(),
       sign_method: "sha256",
       format: "json",
       v: "2.0",
-      product_ids: extractProductId(url),
-      fields:
-        "product_id,product_title,product_main_image_url,product_small_image_urls," +
-        "target_sale_price,target_original_price,discount,commission_rate,shop_name,promotion_link"
+      product_ids: productId
     };
 
     const sign = generateSign(params, appSecret);
@@ -77,17 +76,30 @@ export default async function handler(req, res) {
         commission_rate: product.commission_rate
       }
     });
+
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error",
-      error: error.message
+      message: error.message
     });
   }
 }
 
+async function resolveRedirect(url) {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow"
+    });
+
+    return response.url;
+  } catch {
+    return url;
+  }
+}
+
 function extractProductId(url) {
-  const match = url.match(/\/item\/(\d+)\.html/);
+  const match = url.match(/(\d{10,})/);
   return match ? match[1] : null;
 }
 
