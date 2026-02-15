@@ -44,16 +44,18 @@ export default async function handler(req, res) {
 
     const params = {
       app_key: appKey,
-      method: "aliexpress.affiliate.productdetail.get",
+      method: "aliexpress.affiliate.product.query",
       timestamp,
       format: "json",
       v: "2.0",
       sign_method: "sha256",
       product_ids: productId,
-      target_currency: "USD",
-      target_language: "EN"
+      target_currency: "DZD",
+      target_language: "AR",
+      tracking_id: "cashspro"
     };
 
+    // إنشاء التوقيع
     const sortedKeys = Object.keys(params).sort();
     let signString = appSecret;
 
@@ -80,13 +82,13 @@ export default async function handler(req, res) {
     const responseData = await apiResponse.json();
 
     const data =
-      responseData?.aliexpress_affiliate_productdetail_get_response
+      responseData?.aliexpress_affiliate_product_query_response
         ?.resp_result?.result?.products?.product?.[0];
 
     if (!data) {
       return res.status(404).json({
         success: false,
-        message: "Product not found"
+        message: "Product not available in affiliate system"
       });
     }
 
@@ -99,9 +101,11 @@ export default async function handler(req, res) {
         price: data.target_sale_price,
         original_price: data.target_original_price,
         discount: data.discount,
-        currency: "USD",
+        currency: "DZD",
+        commission_rate: data.commission_rate,
+        sales: data.lastest_volume,
         rating: data.evaluate_rate,
-        sales: data.lastest_volume
+        affiliate_link: data.promotion_link
       }
     });
 
